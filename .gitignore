@@ -1,0 +1,4 @@
+nginx/webroot
+nginx/ssl
+
+.env

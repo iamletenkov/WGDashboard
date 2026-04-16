@@ -1,8 +1,9 @@
 services:
   wgdashboard:
-    image: ghcr.io/wgdashboard/wgdashboard:d56a3cb
+    image: ghcr.io/wgdashboard/wgdashboard:v4.3.3
     container_name: wgdashboard
     restart: always
+    network_mode: host
     environment:
       - tz=${TZ}
       - wgd_port=${WGD_PORT}
@@ -14,21 +15,33 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-    sysctls:
-      - net.ipv4.ip_forward=1
-      - net.ipv6.conf.all.forwarding=1
-    ports:
-      - "51821-51831:51821-51831/udp"
-    expose:
-      - "5000"
+    entrypoint: ["/bin/bash", "/wrapper/entrypoint-wrapper.sh"]
     volumes:
       - aconf:/etc/amnezia/amneziawg
       - conf:/etc/wireguard
       - data:/data
-    networks:
-      - internal
+      - ./wgdashboard/src/gunicorn.conf.py:/opt/wgdashboard/src/gunicorn.conf.py:ro
+      - ./wgdashboard/entrypoint-wrapper.sh:/wrapper/entrypoint-wrapper.sh:ro
+    labels:
+      - "autoheal=true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --timeout=10 http://127.0.0.1:5000/ || exit 1"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
 
-  # One-time: generate dummy self-signed cert so nginx can start
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: wg-autoheal
+    restart: always
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+      - AUTOHEAL_INTERVAL=30
+      - AUTOHEAL_START_PERIOD=60
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
   certbot-init:
     image: alpine:3.21
     container_name: wg-certbot-init
@@ -61,6 +74,7 @@ services:
     image: nginx:1.27-alpine
     container_name: wg-nginx
     restart: always
+    network_mode: host
     depends_on:
       certbot-init:
         condition: service_completed_successfully
@@ -68,15 +82,10 @@ services:
         condition: service_started
     environment:
       - DOMAIN=${DOMAIN}
-    ports:
-      - "80:80/tcp"
-      - "443:443/tcp"
     volumes:
       - ./nginx/conf.d:/etc/nginx/templates:ro
       - ./nginx/webroot:/var/www/certbot:ro
       - ./nginx/ssl:/etc/letsencrypt:ro
-    networks:
-      - internal
 
   certbot:
     image: certbot/certbot:latest
@@ -125,16 +134,9 @@ services:
           docker exec wg-nginx nginx -s reload || true
           sleep 12h
         done
-    networks:
-      - internal
-
-
-networks:
-  internal:
-    driver: bridge
-
 
 volumes:
   aconf:
   conf:
   data:
+

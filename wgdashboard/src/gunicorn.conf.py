@@ -1,0 +1,33 @@
+import dashboard
+from datetime import datetime
+
+global sqldb, cursor, DashboardConfig, WireguardConfigurations, AllPeerJobs, JobLogger, Dash
+app_host, app_port = dashboard.gunicornConfig()
+date = datetime.today().strftime('%Y_%m_%d_%H_%M_%S')
+
+
+def post_worker_init(worker):
+    dashboard.startThreads()
+    dashboard.DashboardPlugins.startThreads()
+
+
+worker_class = 'gthread'
+workers = 1
+threads = 4
+bind = f"127.0.0.1:{app_port}"
+daemon = True
+pidfile = './gunicorn.pid'
+wsgi_app = "dashboard:app"
+accesslog = f"./log/access_{date}.log"
+loglevel = "info"
+capture_output = True
+errorlog = f"./log/error_{date}.log"
+pythonpath = "., ./modules"
+
+# Prevent worker hangs: kill worker if it doesn't respond within 120s
+timeout = 120
+graceful_timeout = 30
+
+print(f"[Gunicorn] WGDashboard w/ Gunicorn will be running on {bind}", flush=True)
+print(f"[Gunicorn] Access log file is at {accesslog}", flush=True)
+print(f"[Gunicorn] Error log file is at {errorlog}", flush=True)

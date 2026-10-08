@@ -1,6 +1,13 @@
 services:
   wgdashboard:
-    image: ghcr.io/wgdashboard/wgdashboard:v4.3.3
+    # Upstream image + amneziawg-tools 3.x built from source (see wgdashboard/Dockerfile):
+    # the upstream image ships 2.0-era awg, which the 3.x kernel module rejects.
+    build:
+      context: ./wgdashboard
+      args:
+        WGD_IMAGE: ghcr.io/wgdashboard/wgdashboard:${WGD_VERSION:-v4.3.3}
+        AWG_TOOLS_REF: ${AWG_TOOLS_REF:-v3.1.20260812}
+    image: wgdashboard-awg:${WGD_VERSION:-v4.3.3}-${AWG_TOOLS_REF:-v3.1.20260812}
     container_name: wgdashboard
     restart: always
     network_mode: host
@@ -10,6 +17,11 @@ services:
       - username=${USERNAME}
       - password=${PASSWORD}
       - global_dns=${GLOBAL_DNS}
+      # Endpoint written into peer configs; without it the entrypoint asks ifconfig.me,
+      # which answers with whatever exit the host's traffic happens to take.
+      - public_ip=${PUBLIC_IP}
+      # Interfaces brought up on every container start (comma-separated), e.g. awg0.
+      - wg_autostart=${WG_AUTOSTART}
     devices:
       - /dev/net/tun:/dev/net/tun
     cap_add:

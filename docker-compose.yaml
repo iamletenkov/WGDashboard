@@ -20,7 +20,7 @@ services:
       # Endpoint written into peer configs; without it the entrypoint asks ifconfig.me,
       # which answers with whatever exit the host's traffic happens to take.
       - public_ip=${PUBLIC_IP}
-      # Interfaces brought up on every container start (comma-separated), e.g. awg0.
+      # Interfaces brought up on every container start, separated by ||, e.g. awg0||awg1.
       - wg_autostart=${WG_AUTOSTART}
     devices:
       - /dev/net/tun:/dev/net/tun

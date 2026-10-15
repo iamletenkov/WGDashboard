@@ -1,13 +1,13 @@
 services:
   wgdashboard:
-    # Upstream image + amneziawg-tools 3.x built from source (see wgdashboard/Dockerfile):
-    # the upstream image ships 2.0-era awg, which the 3.x kernel module rejects.
+    # Upstream image + amneziawg-tools 3.x + AWG 3.x options in the panel
+    # (see wgdashboard/Dockerfile and wgdashboard/patches/).
     build:
       context: ./wgdashboard
       args:
-        WGD_IMAGE: ghcr.io/wgdashboard/wgdashboard:${WGD_VERSION:-v4.3.3}
+        WGD_VERSION: ${WGD_VERSION:-v4.3.3}
         AWG_TOOLS_REF: ${AWG_TOOLS_REF:-v3.1.20260812}
-    image: wgdashboard-awg:${WGD_VERSION:-v4.3.3}-${AWG_TOOLS_REF:-v3.1.20260812}
+    image: wgdashboard-awg:${WGD_VERSION:-v4.3.3}-${AWG_TOOLS_REF:-v3.1.20260812}-awg3
     container_name: wgdashboard
     restart: always
     network_mode: host

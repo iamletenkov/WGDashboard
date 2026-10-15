@@ -1,0 +1,123 @@
+From ea3fd0a143bdfbb62f8ae7340b5b7bb28d563c43 Mon Sep 17 00:00:00 2001
+From: iamletenkov <97413724+iamletenkov@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 13:12:31 +0000
+Subject: [PATCH 2/2] fix(awg): unset AmneziaWG 3.x options are never written
+ to configs
+
+---
+ src/modules/Peer.py                           |  3 +++
+ src/modules/Utilities.py                      | 12 ++++++++++++
+ src/modules/WireguardConfiguration.py         | 18 +++++++-----------
+ src/static/app/src/views/newConfiguration.vue |  2 +-
+ 4 files changed, 23 insertions(+), 12 deletions(-)
+
+diff --git a/src/modules/Peer.py b/src/modules/Peer.py
+index 7cc1705..940140a 100644
+--- a/src/modules/Peer.py
++++ b/src/modules/Peer.py
+@@ -12,6 +12,7 @@ import sqlalchemy as db
+ from .PeerJob import PeerJob
+ from  flask import current_app
+ from .PeerShareLink import PeerShareLink
++from .Utilities import IsUnsetAwg3Value
+ from .Utilities import GenerateWireguardPublicKey, CheckAddress, ValidateDNSAddress
+ 
+ 
+@@ -239,6 +240,8 @@ class Peer:
+             else:
+                 final["file"] += "\n[Peer]\n"
+             for (key, val) in combine[s]:
++                if s == 0 and IsUnsetAwg3Value(key, val):
++                    continue
+                 if val is not None and ((type(val) is str and len(val) > 0) or (type(val) is int and val > 0)):
+                     final["file"] += f"{key} = {val}\n"
+ 
+diff --git a/src/modules/Utilities.py b/src/modules/Utilities.py
+index 661d350..493376d 100644
+--- a/src/modules/Utilities.py
++++ b/src/modules/Utilities.py
+@@ -32,6 +32,18 @@ def GetRemoteEndpoint() -> str:
+     return "127.0.0.1"
+ 
+ 
++# AmneziaWG 3.x interface options. A config written by an older AmneziaWG or by
++# WGDashboard without these options keeps them unset; "0" and "" mean unset and the
++# key is never written, because awg rejects e.g. "HeaderProtectionKey = 0" and a
++# client without AWG 3.x support rejects any of these keys.
++AWG3_KEYS = ["HeaderProtectionKey", "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout",
++             "RejectAfterTime", "KeepaliveTimeout", "MaxHandshakeAttempts", "RandomTrailers", "DisableCookies"]
++
++
++def IsUnsetAwg3Value(key: str, value) -> bool:
++    return key in AWG3_KEYS and (value is None or str(value).strip() in ("", "0"))
++
++
+ def StringToBoolean(value: str):
+     """
+     Convert string boolean to boolean
+diff --git a/src/modules/WireguardConfiguration.py b/src/modules/WireguardConfiguration.py
+index 4bb00aa..ff19cbd 100644
+--- a/src/modules/WireguardConfiguration.py
++++ b/src/modules/WireguardConfiguration.py
+@@ -15,7 +15,7 @@ from .DashboardConfig import DashboardConfig
+ from .Peer import Peer
+ from .PeerJobs import PeerJobs
+ from .PeerShareLinks import PeerShareLinks
+-from .Utilities import StringToBoolean, \
++from .Utilities import AWG3_KEYS, IsUnsetAwg3Value, StringToBoolean, \
+     GenerateWireguardPublicKey, \
+     RegexMatch, \
+     ValidateDNSAddress, \
+@@ -126,15 +126,9 @@ class WireguardConfiguration:
+                 self.__parser["Interface"]["I3"] = self.I3
+                 self.__parser["Interface"]["I4"] = self.I4
+                 self.__parser["Interface"]["I5"] = self.I5
+-                self.__parser["Interface"]["HeaderProtectionKey"] = self.HeaderProtectionKey
+-                self.__parser["Interface"]["ContentPaddingAddition"] = self.ContentPaddingAddition
+-                self.__parser["Interface"]["RekeyAfterTime"] = self.RekeyAfterTime
+-                self.__parser["Interface"]["RekeyTimeout"] = self.RekeyTimeout
+-                self.__parser["Interface"]["RejectAfterTime"] = self.RejectAfterTime
+-                self.__parser["Interface"]["KeepaliveTimeout"] = self.KeepaliveTimeout
+-                self.__parser["Interface"]["MaxHandshakeAttempts"] = self.MaxHandshakeAttempts
+-                self.__parser["Interface"]["RandomTrailers"] = self.RandomTrailers
+-                self.__parser["Interface"]["DisableCookies"] = self.DisableCookies
++                for key in AWG3_KEYS:
++                    if not IsUnsetAwg3Value(key, getattr(self, key)):
++                        self.__parser["Interface"][key] = getattr(self, key)
+ 
+             if "Backup" not in data.keys():
+                 self.createDatabase()
+@@ -1031,6 +1025,8 @@ class WireguardConfiguration:
+                     if split[0] not in allowEdit:
+                         new.append(original[line])
+             for key in allowEdit:
++                if IsUnsetAwg3Value(key, newData.get(key)):
++                    continue
+                 new.insert(1, f"{key} = {str(newData[key]).strip()}")
+             new.append("")
+             for line in range(end, len(original)):
+@@ -1043,7 +1039,7 @@ class WireguardConfiguration:
+         if not status:
+             return False, msg
+         for i in allowEdit:
+-            setattr(self, i, str(newData[i]))
++            setattr(self, i, str(newData.get(i, "")))
+                 
+         return True, ""
+ 
+diff --git a/src/static/app/src/views/newConfiguration.vue b/src/static/app/src/views/newConfiguration.vue
+index 3841e61..1a6c095 100644
+--- a/src/static/app/src/views/newConfiguration.vue
++++ b/src/static/app/src/views/newConfiguration.vue
+@@ -62,7 +62,7 @@ export default {
+ 				KeepaliveTimeout: "8-12",
+ 				MaxHandshakeAttempts: "14-20",
+ 				RandomTrailers: "on",
+-				DisableCookies: "on"
++				DisableCookies: "off"
+ 			},
+ 			numberOfAvailableIPs: "0",
+ 			error: false,
+-- 
+2.39.5
+

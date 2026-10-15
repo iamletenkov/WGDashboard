@@ -1,0 +1,167 @@
+From 8195b90d046718eb02c6f603bb85cc87af7fd42b Mon Sep 17 00:00:00 2001
+From: Evgeny Volferts <eugene.wolferz@gmail.com>
+Date: Sat, 12 Sep 2026 18:54:34 +0300
+Subject: [PATCH 1/2] Add new AmneziaWG parameters (implemented in 3.0/3.1)
+
+---
+ src/modules/AmneziaConfiguration.py           | 20 +++++++++++++++-
+ src/modules/Peer.py                           | 11 ++++++++-
+ src/modules/WireguardConfiguration.py         | 11 ++++++++-
+ .../editConfiguration.vue                     |  2 +-
+ src/static/app/src/views/newConfiguration.vue | 24 +++++++++++++++++--
+ 5 files changed, 62 insertions(+), 6 deletions(-)
+
+diff --git a/src/modules/AmneziaConfiguration.py b/src/modules/AmneziaConfiguration.py
+index 6ddba99..6f86290 100644
+--- a/src/modules/AmneziaConfiguration.py
++++ b/src/modules/AmneziaConfiguration.py
+@@ -37,6 +37,15 @@ class AmneziaConfiguration(WireguardConfiguration):
+         self.I3 = "0"
+         self.I4 = "0"
+         self.I5 = "0"
++        self.HeaderProtectionKey = "0"
++        self.ContentPaddingAddition = 0
++        self.RekeyAfterTime = 0
++        self.RekeyTimeout = 0
++        self.RejectAfterTime = 0
++        self.KeepaliveTimeout = 0
++        self.MaxHandshakeAttempts = 0
++        self.RandomTrailers = 0
++        self.DisableCookies = 0
+ 
+         super().__init__(DashboardConfig, AllPeerJobs, AllPeerShareLinks, DashboardWebHooks, name, data, backup, startup, wg=False)
+ 
+@@ -79,7 +88,16 @@ class AmneziaConfiguration(WireguardConfiguration):
+             "I2": self.I2,
+             "I3": self.I3,
+             "I4": self.I4,
+-            "I5": self.I5
++            "I5": self.I5,
++            "HeaderProtectionKey": self.HeaderProtectionKey,
++            "ContentPaddingAddition": self.ContentPaddingAddition,
++            "RekeyAfterTime": self.RekeyAfterTime,
++            "RekeyTimeout": self.RekeyTimeout,
++            "RejectAfterTime": self.RejectAfterTime,
++            "KeepaliveTimeout": self.KeepaliveTimeout,
++            "MaxHandshakeAttempts": self.MaxHandshakeAttempts,
++            "RandomTrailers": self.RandomTrailers,
++            "DisableCookies": self.DisableCookies
+         }
+ 
+     def createDatabase(self, dbName = None):
+diff --git a/src/modules/Peer.py b/src/modules/Peer.py
+index 1fc4e65..7cc1705 100644
+--- a/src/modules/Peer.py
++++ b/src/modules/Peer.py
+@@ -206,7 +206,16 @@ class Peer:
+                 "I2": self.configuration.I2,
+                 "I3": self.configuration.I3,
+                 "I4": self.configuration.I4,
+-                "I5": self.configuration.I5
++                "I5": self.configuration.I5,
++                "HeaderProtectionKey": self.configuration.HeaderProtectionKey,
++                "ContentPaddingAddition": self.configuration.ContentPaddingAddition,
++                "RekeyAfterTime": self.configuration.RekeyAfterTime,
++                "RekeyTimeout": self.configuration.RekeyTimeout,
++                "RejectAfterTime": self.configuration.RejectAfterTime,
++                "KeepaliveTimeout": self.configuration.KeepaliveTimeout,
++                "MaxHandshakeAttempts": self.configuration.MaxHandshakeAttempts,
++                "RandomTrailers": self.configuration.RandomTrailers,
++                "DisableCookies": self.configuration.DisableCookies
+             })
+ 
+         peerSection = {
+diff --git a/src/modules/WireguardConfiguration.py b/src/modules/WireguardConfiguration.py
+index 548dfcb..4bb00aa 100644
+--- a/src/modules/WireguardConfiguration.py
++++ b/src/modules/WireguardConfiguration.py
+@@ -126,6 +126,15 @@ class WireguardConfiguration:
+                 self.__parser["Interface"]["I3"] = self.I3
+                 self.__parser["Interface"]["I4"] = self.I4
+                 self.__parser["Interface"]["I5"] = self.I5
++                self.__parser["Interface"]["HeaderProtectionKey"] = self.HeaderProtectionKey
++                self.__parser["Interface"]["ContentPaddingAddition"] = self.ContentPaddingAddition
++                self.__parser["Interface"]["RekeyAfterTime"] = self.RekeyAfterTime
++                self.__parser["Interface"]["RekeyTimeout"] = self.RekeyTimeout
++                self.__parser["Interface"]["RejectAfterTime"] = self.RejectAfterTime
++                self.__parser["Interface"]["KeepaliveTimeout"] = self.KeepaliveTimeout
++                self.__parser["Interface"]["MaxHandshakeAttempts"] = self.MaxHandshakeAttempts
++                self.__parser["Interface"]["RandomTrailers"] = self.RandomTrailers
++                self.__parser["Interface"]["DisableCookies"] = self.DisableCookies
+ 
+             if "Backup" not in data.keys():
+                 self.createDatabase()
+@@ -1008,7 +1017,7 @@ class WireguardConfiguration:
+             original = [l.rstrip("\n") for l in f.readlines()]
+             allowEdit = ["Address", "PreUp", "PostUp", "PreDown", "PostDown", "ListenPort", "Table"]
+             if self.Protocol == 'awg':
+-                allowEdit += ["Jc", "Jmin", "Jmax", "S1", "S2", "S3", "S4", "H1", "H2", "H3", "H4", "I1", "I2", "I3", "I4", "I5"]
++                allowEdit += ["Jc", "Jmin", "Jmax", "S1", "S2", "S3", "S4", "H1", "H2", "H3", "H4", "I1", "I2", "I3", "I4", "I5", "HeaderProtectionKey", "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout", "MaxHandshakeAttempts", "RandomTrailers", "DisableCookies"]
+             start = original.index("[Interface]")
+             try:
+                 end = original.index("[Peer]")
+diff --git a/src/static/app/src/components/configurationComponents/editConfiguration.vue b/src/static/app/src/components/configurationComponents/editConfiguration.vue
+index f5d67dc..bca8e77 100644
+--- a/src/static/app/src/components/configurationComponents/editConfiguration.vue
++++ b/src/static/app/src/components/configurationComponents/editConfiguration.vue
+@@ -197,7 +197,7 @@ const deleteConfigurationModal = ref(false)
+ 														       v-model="data[key]"
+ 														       :id="'configuration_' + key">
+ 													</div>
+-													<div v-for="key in ['Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4', 'H1', 'H2', 'H3', 'H4', 'I1', 'I2', 'I3', 'I4', 'I5']"
++													<div v-for="key in ['Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4', 'H1', 'H2', 'H3', 'H4', 'I1', 'I2', 'I3', 'I4', 'I5', 'HeaderProtectionKey', 'ContentPaddingAddition', 'RekeyAfterTime', 'RekeyTimeout', 'RejectAfterTime', 'KeepaliveTimeout', 'MaxHandshakeAttempts', 'RandomTrailers', 'DisableCookies']"
+ 													     v-if="configurationInfo.Protocol === 'awg'">
+ 														<label :for="'configuration_' + key" class="form-label">
+ 															<small class="text-muted">
+diff --git a/src/static/app/src/views/newConfiguration.vue b/src/static/app/src/views/newConfiguration.vue
+index 59ad796..3841e61 100644
+--- a/src/static/app/src/views/newConfiguration.vue
++++ b/src/static/app/src/views/newConfiguration.vue
+@@ -53,7 +53,16 @@ export default {
+ 				I2: "0",
+ 				I3: "0",
+ 				I4: "0",
+-				I5: "0"
++				I5: "0",
++				HeaderProtectionKey: "0",
++				ContentPaddingAddition: "0-64",
++				RekeyAfterTime: "100-140",
++				RekeyTimeout: "4-7",
++				RejectAfterTime: "160-200",
++				KeepaliveTimeout: "8-12",
++				MaxHandshakeAttempts: "14-20",
++				RandomTrailers: "on",
++				DisableCookies: "on"
+ 			},
+ 			numberOfAvailableIPs: "0",
+ 			error: false,
+@@ -76,6 +85,17 @@ export default {
+ 		['I1', 'I2', 'I3', 'I4', 'I5'].forEach(key => {
+ 			this.newConfiguration[key] = "0";
+ 		});
++
++    // Initialize HeaderProtectionKey
++    let headerProtectionKey = new Uint8Array(32);
++		window.crypto.getRandomValues(headerProtectionKey);
++    this.newConfiguration.HeaderProtectionKey = btoa(String.fromCharCode(...headerProtectionKey));
++
++    // S1-S4 are recommended be the same to work with RandomTrailers and must 12 or more to work with HeaderProtectionKey
++    let constantS = 12 + this.rand(1, 2**5);
++		['S1', 'S2', 'S3', 'S4'].forEach(key => {
++			this.newConfiguration[key] = constantS;
++		});
+ 	},
+ 	methods: {
+ 		rand(min, max){
+@@ -388,7 +408,7 @@ export default {
+ 
+ 								<div class="card rounded-3" 
+ 								     v-if="this.newConfiguration.Protocol === 'awg'"
+-								     v-for="key in ['Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4', 'H1', 'H2', 'H3', 'H4', 'I1', 'I2', 'I3', 'I4', 'I5']">
++								     v-for="key in ['Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4', 'H1', 'H2', 'H3', 'H4', 'I1', 'I2', 'I3', 'I4', 'I5', 'HeaderProtectionKey', 'ContentPaddingAddition', 'RekeyAfterTime', 'RekeyTimeout', 'RejectAfterTime', 'KeepaliveTimeout', 'MaxHandshakeAttempts', 'RandomTrailers', 'DisableCookies']">
+ 									<div class="card-header">{{ key }}</div>
+ 									<div class="card-body">
+ 										<input type="text"
+-- 
+2.39.5
+

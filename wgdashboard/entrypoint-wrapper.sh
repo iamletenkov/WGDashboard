@@ -1,18 +1,25 @@
 #!/bin/bash
-# Wrapper: ensure dashboard_api_key stays enabled after entrypoint sets up the ini
-# The original entrypoint is sourced so all its functions and logic run normally.
-# After setup, we patch the ini before gunicorn reads it.
+# Wrapper around the upstream entrypoint:
+# - keeps dashboard_api_key enabled after the entrypoint has written the ini;
+# - watchdog: Docker only restarts a container whose main process exits, and an
+#   "unhealthy" status alone changes nothing. When the panel stops answering HTTP for
+#   WATCHDOG_FAILS checks in a row, the watchdog ends the entrypoint, the container
+#   exits and "restart: always" brings it back. Tunnels in the host kernel stay up.
 
 config_file="/data/wg-dashboard.ini"
+port="${wgd_port:-5000}"
+interval="${WATCHDOG_INTERVAL:-30}"
+fails_allowed="${WATCHDOG_FAILS:-4}"
+grace="${WATCHDOG_GRACE:-90}"
 
-# Run the original entrypoint in the background
 /bin/bash /entrypoint.sh &
 ENTRY_PID=$!
+# PID 1 ignores SIGTERM without a handler: pass "docker stop" on to the entrypoint.
+trap 'kill -TERM "$ENTRY_PID" 2>/dev/null' TERM INT
 
-# Wait for gunicorn to start (ini file is ready by then)
+# The ini is ready once gunicorn has started.
 sleep 5
 
-# Ensure dashboard_api_key is enabled
 if [ -f "$config_file" ]; then
   if grep -q "^[[:space:]]*dashboard_api_key[[:space:]]*=" "$config_file"; then
     current=$(grep "^[[:space:]]*dashboard_api_key[[:space:]]*=" "$config_file" | cut -d= -f2- | xargs)
@@ -28,5 +35,27 @@ if [ -f "$config_file" ]; then
   fi
 fi
 
-# Follow the entrypoint process
-wait $ENTRY_PID
+watchdog() {
+  sleep "$grace"
+  local fails=0
+  while kill -0 "$ENTRY_PID" 2>/dev/null; do
+    if wget -q -O /dev/null -T 10 "http://127.0.0.1:${port}/"; then
+      fails=0
+    else
+      fails=$((fails + 1))
+      echo "[watchdog] panel did not answer on :${port} (${fails}/${fails_allowed})"
+      if [ "$fails" -ge "$fails_allowed" ]; then
+        echo "[watchdog] panel is hung, exiting so Docker restarts the container"
+        kill -KILL "$ENTRY_PID" 2>/dev/null
+        return
+      fi
+    fi
+    sleep "$interval"
+  done
+}
+watchdog &
+
+wait "$ENTRY_PID"
+status=$?
+echo "[wrapper] entrypoint exited with status ${status}"
+exit "$status"

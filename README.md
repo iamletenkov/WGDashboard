@@ -42,16 +42,36 @@ echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/99-awg-forward.conf && sysctl --s
 
 Docker — из официального репозитория Docker (`docker-ce`, `docker-compose-plugin`).
 
-## 2. Запуск
+## 2. Запуск и режимы доступа к панели
 
 ```bash
 git clone https://github.com/iamletenkov/WGDashboard && cd WGDashboard
-cp .env.example .env    # DOMAIN, CERTBOT_EMAIL, PASSWORD, PUBLIC_IP, WG_AUTOSTART
+cp .env.example .env    # COMPOSE_PROFILES, DOMAIN, CERTBOT_EMAIL, PASSWORD, PUBLIC_IP, WG_AUTOSTART
 docker compose up -d --build
 ```
 
-- DNS-запись `DOMAIN` должна указывать на сервер до запуска: certbot сразу запрашивает сертификат.
-- Панель слушает только `127.0.0.1:5000`, снаружи — через nginx на 443.
+Режим выбирается строкой `COMPOSE_PROFILES` в `.env`:
+
+| `COMPOSE_PROFILES` | Вход в панель | Что запускается |
+|---|---|---|
+| `domain` | `https://<DOMAIN>` | панель, nginx, certbot (Let's Encrypt) |
+| `ip` | `https://<IP сервера>` (в `DOMAIN` — IP) | панель, nginx с самоподписанным сертификатом |
+| пусто | `ssh -L 5000:127.0.0.1:5000 root@<сервер>` → `http://localhost:5000` | только панель |
+
+- Панель всегда слушает только `127.0.0.1:${WGD_PORT}`; наружу её отдаёт nginx. Nginx нужен не
+  только ради HTTPS: он отбрасывает медленные и мусорные соединения сканеров (таймауты в
+  `nginx/conf.d/vpn.conf.template`), которые иначе вешают gunicorn панели.
+- `domain`: DNS-запись `DOMAIN` должна указывать на сервер до запуска — certbot сразу
+  запрашивает сертификат, порт 80 должен быть открыт.
+- `ip`: задать `DOMAIN=<IP сервера>` и `SELF_SIGNED_DAYS=3650`. Браузер один раз предупредит
+  о самоподписанном сертификате.
+- `PANEL_ACCESS` — правила nginx для панели в режимах `domain` и `ip`, например
+  `allow 10.0.0.0/8; allow 192.168.0.0/16; deny all;` — тогда из интернета панель не видна.
+  Путь проверки Let's Encrypt (`/.well-known/acme-challenge/`) не ограничивается.
+- Смена режима: поправить `COMPOSE_PROFILES` и выполнить `docker compose up -d --remove-orphans`.
+  Туннели при этом не трогаются.
+- Nginx сам перечитывает сертификат, когда certbot его выпустил или продлил
+  (`nginx/reload-on-cert-change.sh`): ни одному контейнеру не нужен доступ к `docker.sock`.
 - `WGD_VERSION` и `AWG_TOOLS_REF` — версии WGDashboard и утилит AmneziaWG. Образ собирается
   поверх официального `ghcr.io/wgdashboard/wgdashboard:${WGD_VERSION}` (`wgdashboard/Dockerfile`):
   - утилиты AmneziaWG собираются из исходников: в официальном образе лежит `awg` эпохи 2.0,
@@ -114,14 +134,33 @@ PostDown = iptables -D FORWARD -i awg0 -j ACCEPT; iptables -D FORWARD -o awg0 -j
 AWG 2.0 через API, добавлены пиры, сохранены настройки, скачаны конфиги; клиент из скачанного
 конфига AWG 3.1 проходит handshake. На коде только с `0001` конфигурация AWG 2.0 не поднимается.
 
-## 5. Обновление работающего сервера
+## 5. Сторож панели
+
+Docker перезапускает контейнер, только если тот завершился; статус `unhealthy` он лишь
+показывает. Поэтому в `wgdashboard/entrypoint-wrapper.sh` работает сторож: раз в
+`WATCHDOG_INTERVAL` (30 с) он запрашивает панель по HTTP, и после `WATCHDOG_FAILS` (4) неудач
+подряд завершает контейнер — `restart: always` поднимает его заново. Первые `WATCHDOG_GRACE`
+(90 с) после старта не проверяются. Отдельный контейнер `autoheal` с доступом к `docker.sock`
+больше не нужен.
+
+Туннели при перезапуске контейнера не падают, если они в модуле ядра хоста
+(`network_mode: host`, раздел 1). Без модуля туннели работают в `amneziawg-go` внутри
+контейнера и на время перезапуска обрываются.
+
+Проверено (2026-10-15): замороженная панель перезапускается сторожем и снова отвечает;
+`docker stop` завершает контейнер сразу; в режиме `ip` nginx отдаёт панель по HTTPS,
+перенаправляет HTTP, `PANEL_ACCESS` отказывает чужим адресам; nginx перечитывает сменившийся
+сертификат.
+
+## 6. Обновление работающего сервера
 
 ```bash
 cd WGDashboard && git pull
-docker compose up -d --build wgdashboard
+grep -q '^COMPOSE_PROFILES=' .env || echo 'COMPOSE_PROFILES=domain' >> .env   # см. раздел 2
+docker compose up -d --build --remove-orphans
 ```
 
-Туннели при перезапуске контейнера не падают: интерфейсы живут в ядре хоста
-(`network_mode: host`), панель только управляет ими. `autoheal` перезапускает контейнер, если
-панель перестала отвечать по HTTP (у официального образа healthcheck проверяет лишь, что
-процессы запущены, и зависшую панель не замечает).
+- Если сервер работал с доменом, режим — `domain`. Без строки `COMPOSE_PROFILES` compose
+  не запустит nginx и certbot, и панель пропадёт снаружи.
+- `--remove-orphans` убирает контейнер `wg-autoheal` из прежних версий.
+- Туннели и пиры не трогаются: конфигурации и база панели — в томах Docker, интерфейсы — в ядре.
